@@ -12,7 +12,7 @@ export const signin = async (req, res, next) => {
   const user = await userModel.findOne({ email });
 
   if (!user) {
-    return next(new Error("Email does't exist", { cause: 404 }));
+    return next(new Error("Email does't exist", { cause: 500 }));
   }
 
   // Optional: verify email is confirmed
@@ -24,8 +24,7 @@ export const signin = async (req, res, next) => {
   if (!match) {
     const token = jwt.sign(
       { id: user._id, role: user.role },
-      process.env.JWT_SECRET_SIGNATURE,
-      { expiresIn: "12h" }
+      process.env.SIGNATURE,      { expiresIn: "12h" }
     );
     return res.json({ message: "Login successful", token });
   } else {

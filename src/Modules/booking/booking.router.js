@@ -1,25 +1,15 @@
 import { Router } from 'express'
 import authorization from "../../Middleware/authorization.middleware.js";
 import * as bookingController from "./controller/booking.controller.js";
-
+import validation from '../../Middleware/validation.middleware.js';
+import * as validationSchema from './booking.validation.js'
 const router = new Router();
 
 // Create a new booking (rent soccer)
-router.post("/createBooking",authorization(["user", "admin"]),  bookingController.createBooking
+router.post("/createBooking",authorization(["user", "admin"]),validation(validationSchema.createBooking) , bookingController.createBooking
 );
 
-// Update an existing booking
-router.put(
-  "/:id",
-  authorization(["admin"]),
-  bookingController.updateBooking
-);
-
-// Delete a booking
-router.delete(
-  "/:id",
-  authorization(["admin"]),
-  bookingController.deleteBooking
-);
+ 
+ 
 
 export default router;
