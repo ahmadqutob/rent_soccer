@@ -1,7 +1,7 @@
  import connectDB from '../database/ConnectDB.js'
 import authRouter from './Modules/auth/auth.router.js'
-import productRouter from './Modules/product/Product.router.js'
-import bookingRouter from './Modules/booking/booking.router.js'
+ import bookingRouter from './Modules/booking/booking.router.js'
+ import postRouter from './Modules/Posts/Posts.router.js'
 // import categoryRouter from './Modules/category/category.router.js'
 const initApp = (app,express,next) => {
 
@@ -11,10 +11,8 @@ const initApp = (app,express,next) => {
 
   app.use("/auth", authRouter )
   app.use("/booking", bookingRouter )
-  app.use("/products", productRouter )
-  // app.use("/category", categoryRouter )
-
-
+  app.use("/post", postRouter )
+  
 
 
 

@@ -14,6 +14,7 @@ router.get("/confirmEmail/:token", validation(validationSchema.token),  authCont
 
  router.get("/checkConfirmEmail/:email", validation(validationSchema.checkConfirmEmail),  authController.checkConfirmEmail);
 
+//  router.put("/updateUser")
 
 // forget password
 // {

@@ -24,7 +24,8 @@ export const signin = async (req, res, next) => {
   if (!match) {
     const token = jwt.sign(
       { id: user._id, role: user.role },
-      process.env.SIGNATURE,      { expiresIn: "12h" }
+      process.env.SIGNATURE || "temporary_secret_for_testing_only_do_not_use_in_production_12345",
+      { expiresIn: "12h" }
     );
     return res.json({ message: "Login successful", token });
   } else {
@@ -33,6 +34,7 @@ export const signin = async (req, res, next) => {
 };
 
 export const signup = asyncHandler(async (req, res, next) => {
+  
   const { userName, password, email, phone, role, gender } = req.body;
   // 1 check is user exist
   const existingUser = await userModel.findOne({ email });
@@ -40,10 +42,9 @@ export const signup = asyncHandler(async (req, res, next) => {
     return res.status(400).json({ message: "Email already registered" });
     // re direct to login page
   }
-
+  
   // 2- hash password
   const hashPassword = await bcrypt.hash(password, 8);
-
   //  3- Generate {email verification} token
   const tokenId = crypto.randomUUID(); //unique id for each token
   const emailToken = jwt.sign(
@@ -51,6 +52,8 @@ export const signup = asyncHandler(async (req, res, next) => {
     process.env.CONFIRM_SIGNATURE,
     { expiresIn: "1h" }
   );
+  
+ 
 
   // 4- Save user with confirmEmail = false
   const newUser = await userModel.create({
@@ -98,7 +101,7 @@ export const signup = asyncHandler(async (req, res, next) => {
 export const confairmEmails = asyncHandler(async (req, res, next) => {
   const { token } = req.params;
 
-  const decoded = await jwt.verify(token, process.env.CONFIRM_SIGNATURE);
+  const decoded = await jwt.verify(token, process.env.CONFIRM_SIGNATURE || "temporary_secret_for_testing_only_do_not_use_in_production_12345");
   const checkuser = await userModel.findOne({ email: decoded.email });
   // Validate token payload
    if (

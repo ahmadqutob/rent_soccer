@@ -2,12 +2,12 @@ import { Router } from "express";
 import authorization from "../../Middleware/authorization.middleware.js";
 import fileUpload from "../../Middleware/multer.middleware.js";
 import { fileValidation } from "../../Middleware/multer.middleware.js";
-import * as productController from "./Controller/product.controller.js";
+import * as productController from "./Controller/Posts.controller.js";
 
 const router = new Router();//Modular Routing
 
 // Create product with image upload
-router.post("/createProduct", 
+router.post("/createPost", 
     authorization(["admin"]),  
     fileUpload(fileValidation.image).fields([
         {name:'mainImage', maxCount:1},

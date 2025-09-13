@@ -41,13 +41,15 @@ const userSchema = new Schema({
     enum: ["male", "female"],
     required: [true, "Gender is required"],
   },
-  wishlist: [{
-    type: Types.ObjectId,
-    ref: "Product",
-  }],
+ 
   verificationTokenId:{
     type: String,
     default: null,
+  },
+  points: {
+    type: Number,
+    default: 0,
+    min: 0,
   }
 }, {
   timestamps: true,

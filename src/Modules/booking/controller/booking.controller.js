@@ -1,28 +1,36 @@
 import { asyncHandler } from "../../../Services/ErrorHandler.services.js";
 import Booking from "../../../../database/Models/booking.models.js";
+import User from "../../../../database/Models/user.model.js";
 import { sendEmail } from "../../../Services/SendEmail.services.js";
 import { sendWhatsApp } from "../../../Services/sendWhatsapp.services.js";
 // change time 19:18 to number 19*60 + 18
 const toMinutes = (timeStr) => {
   const [h, m] = String(timeStr).split(":").map(Number);
+  if (h < 0 || h > 23) throw new Error("Hours must be between 0 and 23");
+
   if (m < 0 || m > 59) throw new Error("Minutes must be between 0 and 59");
   return h * 60 + m;
 };
 
-//string Date user 
-// Normalize "YYYY-MM-DD" or "YYYY/MM/DD" -> Date at local 00:00:00.000
-const getDayBounds = (dateStr) => {
-  const normalized = dateStr.replaceAll("/", "-"); // allow both separators
-  const dayStart = new Date(normalized); // convert string to Date object
+ 
+//2025-08-12 [from start , to end date]
+//bound=حدود
+const getDayBounds = (dateOfRent_Str) => {
+  const normalized = dateOfRent_Str.replaceAll("/", "-"); // allow both separators
+  
+  // Parse the date string and create Date object in local timezone
+  const [year, month, day] = normalized.split('-').map(Number);
+  const dayStart = new Date(year, month - 1, day); // month is 0-indexed in JavaScript
+  
   if (Number.isNaN(dayStart.getTime())) throw new Error("Invalid dateOfRent");
 
-  dayStart.setHours(0, 0, 0, 0); // start of day
+  dayStart.setHours(0, 0, 0, 0); // start of day in local timezone
   const dayEnd = new Date(dayStart); 
-  dayEnd.setHours(23, 59, 59, 999); // end of day
+  dayEnd.setHours(23, 59, 59, 999); // end of day in local timezone
   return { dayStart, dayEnd };
 };
 
-const validateNotPastDate = (dayStart) => {
+const validateNotPastDate = (dayStart) => { // dayStart is object from getDayBounds function
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (dayStart < todayStart) {
@@ -32,6 +40,7 @@ const validateNotPastDate = (dayStart) => {
   }
 };
 
+// check endRentTime is not before startRentTime
 const validateTimeOrder = (startRentTime, endRentTime) => {
   const s = toMinutes(startRentTime);
   const e = toMinutes(endRentTime);
@@ -42,6 +51,7 @@ const validateTimeOrder = (startRentTime, endRentTime) => {
   }
 };
 
+// check time should be is the future
 const validateNotPastTimeToday = (dayStart, startRentTime) => {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -57,6 +67,7 @@ const validateNotPastTimeToday = (dayStart, startRentTime) => {
   }
 };
 
+// convert minutes to hours for caculate the price per hour 
 const calculateDurationHours = (startRentTime, endRentTime) => {
   const startRentTime_min = toMinutes(startRentTime);
   const endRentTime_min = toMinutes(endRentTime);
@@ -65,6 +76,12 @@ const calculateDurationHours = (startRentTime, endRentTime) => {
 
 const calculatePrice = (durationHours, pricePerHour = 70) => {
   return Math.round(Number(durationHours) * pricePerHour * 100) / 100; // round to 2 decimals
+};
+
+//Ensures the minimum is 1 point, even if the booking is less than 1 hour.
+const calculatePoints = (durationHours) => {
+  const points = Math.max(1, Math.round(durationHours)); //0.8 hour -> 1 hour 
+  return points;
 };
 
 export const createBooking = asyncHandler(async (req, res, next) => {
@@ -79,16 +96,16 @@ export const createBooking = asyncHandler(async (req, res, next) => {
     anyComment,
   } = req.body;
 
-  // 1) Day bounds
+  // 1) Day bounds [from start ,to end day]
   const { dayStart, dayEnd } = getDayBounds(dateOfRent);
 
   // 2) Date not in past
   validateNotPastDate(dayStart);
 
-  // 3) EndRentTime > StartRentTime
+  // 3)check if  EndRentTime > StartRentTime
   validateTimeOrder(startRentTime, endRentTime);
 
-  // 4) If booking today, start must be >= now
+  // 4) If booking today, start must be >= now and should be in the future
   validateNotPastTimeToday(dayStart, startRentTime);
 
   // 5) Check overlaps (same field or global if single field)
@@ -119,9 +136,9 @@ export const createBooking = asyncHandler(async (req, res, next) => {
   }
 
   // 6) Calculate duration & price
-  const durationHours = calculateDurationHours(startRentTime, endRentTime);
+  const durationHours = calculateDurationHours(startRentTime, endRentTime); //convert min to hour
   const pricePerHour = 70;
-  const totalPrice = calculatePrice(durationHours, pricePerHour);
+  const totalPrice = calculatePrice(durationHours, pricePerHour); //calculate the price per hour
 
   // 7) Create booking
   const created = await Booking.create({
@@ -140,7 +157,15 @@ export const createBooking = asyncHandler(async (req, res, next) => {
     createdBy: userID,
   });
 
-  // 8) Send confirmation email
+  // 8) Calculate and add points to user
+  const pointsEarned = calculatePoints(durationHours);
+  await User.findByIdAndUpdate(
+    userID,
+    { $inc: { points: pointsEarned } }, // Increment points by the earned amount
+    { new: true }
+  );
+
+  // 9) Send confirmation email
   await sendEmail(
     created.renterEmail,
     "📅 Your Booking Request Received",
@@ -153,6 +178,7 @@ export const createBooking = asyncHandler(async (req, res, next) => {
       <p><b>Phone:</b> ${created.renterPhone}</p>
       <p><b>Comments:</b> ${created.anyComment || "None"}</p>
       <p><b>Total Price:</b> ${created.totalPrice} ₪</p>
+      <p><b>Points Earned:</b> ${pointsEarned} ⭐</p>
       <hr/>
       <p>We will contact you soon to confirm ✅</p>
     `
@@ -160,14 +186,390 @@ export const createBooking = asyncHandler(async (req, res, next) => {
 
 
 
-  await sendWhatsApp(
-    renterPhone,
-    `Hello ${renterName}, your booking on ${dayStart.toDateString()} from ${startRentTime} to ${endRentTime} has been received. Total price: ${totalPrice} ₪`
-  );
+  // await sendWhatsApp(
+  //   renterPhone,
+  //   `Hello ${renterName}, your booking on ${dayStart.toDateString()} from ${startRentTime} to ${endRentTime} has been received. Total price: ${totalPrice} ₪`
+  // );
 
   return res.status(201).json({
     success: true,
     message: "Booking created",
     data: created,
+ 
   });
 });
+
+
+export const updateBooking = asyncHandler(async (req,res)=>{
+  const bookingId = req.params.bookingId || req.params.id;
+  if (!bookingId) {
+    return res.status(400).json({ success: false, message: "Booking id is required in params" });
+  }
+
+  const existing = await Booking.findById(bookingId);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: "Booking not found" });
+  }
+
+  // Authorization: allow owner or adminتفويض 
+  const isOwner = String(existing.userId) === String(req.user?._id);
+  const isAdmin = req.user?.role === "admin";
+  if (!isOwner && !isAdmin) {     
+
+    return res.status(403).json({ success: false, message:  "Access denied: You don’t have permission to perform this action." });
+  }
+
+  // reads possible updates fields // amd only adds fields will updates !=undefined
+  const {
+    renterName,
+    renterPhone,
+    renterEmail,
+    dateOfRent,
+    startRentTime,
+    endRentTime,
+    anyComment,
+    status,
+    pricePerHour,
+  } = req.body || {};
+
+  const updates = {}; // object for updates fields
+
+  // check if feild is !==undefind will updates otherwise won't to update
+  if (renterName !== undefined) updates.renterName = renterName;
+  if (renterPhone !== undefined) updates.renterPhone = renterPhone;
+  if (renterEmail !== undefined) updates.renterEmail = renterEmail;
+  if (anyComment !== undefined) updates.anyComment = anyComment;
+  // Only admin can change status
+  if (status !== undefined) {
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: "Only admin can change booking status" });
+    }
+    updates.status = status; // expects one of [confirmed,pending,cancelled]
+  }
+  if (pricePerHour !== undefined) updates.pricePerHour = Number(pricePerHour);
+
+  // Determine final temporal values considering partial updates
+  let finalDate = existing.dateOfRent;
+  let finalStart = existing.startRentTime;
+  let finalEnd = existing.endRentTime;
+
+  if (dateOfRent !== undefined) {
+    const { dayStart } = getDayBounds(String(dateOfRent));
+    finalDate = dayStart;
+     finalDate.toLocaleDateString('en-CA');
+  }
+  // console.log({finalDate: finalDate.toLocaleDateString('en-CA')});
+  // return res.json({
+  //   message: finalDate.toLocaleDateString('en-CA'), // Returns YYYY-MM-DD format in local timezone
+  //   originalDate: finalDate,
+  //   isoString: finalDate.toISOString(),  The UTC ISO 2025-08-27T21:00:00.000Z
+  //   localDate: finalDate.toLocaleDateString(), /8/28/2025
+  //   localTime: finalDate.toLocaleTimeString() 12:00:00 AM
+  // })
+  if (startRentTime !== undefined) finalStart = String(startRentTime);
+  if (endRentTime !== undefined) finalEnd = String(endRentTime);
+
+  // If any of date/start/end changed, validate and check conflicts and recalc derived fields
+  const temporalChanged =
+    dateOfRent !== undefined || startRentTime !== undefined || endRentTime !== undefined;
+
+  if (temporalChanged) {
+    // 1) Validate date not in past
+    validateNotPastDate(finalDate);
+
+    // 2) Validate times order
+    validateTimeOrder(finalStart, finalEnd);
+
+    // 3) If booking today and start time changed or date changed to today, ensure start not in past
+    validateNotPastTimeToday(finalDate, finalStart);
+
+    // 4) Check overlap with other bookings on same date (exclude self)
+    const { dayStart, dayEnd } = { dayStart: new Date(finalDate), dayEnd: new Date(finalDate) };
+    dayStart.setHours(0, 0, 0, 0);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const candidates = await Booking.find({
+      _id: { $ne: existing._id },
+      dateOfRent: { $gte: dayStart, $lte: dayEnd },
+      status: { $ne: "cancelled" },
+    }).lean();
+
+    const newStartMin = toMinutes(finalStart);
+    const newEndMin = toMinutes(finalEnd);
+    const hasConflict = candidates.some((b) => {
+      const bStart = toMinutes(b.startRentTime);
+      const bEnd = toMinutes(b.endRentTime);
+      return !(newEndMin <= bStart || newStartMin >= bEnd);
+    });
+
+    if (hasConflict) {
+      return res.status(409).json({ success: false, message: "Time slot not available for the selected date" });
+    }
+
+    // 5) Recalculate derived fields
+    const durationHours = calculateDurationHours(finalStart, finalEnd);
+    const effectivePricePerHour = updates.pricePerHour ?? existing.pricePerHour ?? 70;
+    const totalPrice = calculatePrice(durationHours, effectivePricePerHour);
+
+    updates.dateOfRent = finalDate.toLocaleDateString('en-CA'); // Store the date directly without converting to UTC
+    updates.startRentTime = finalStart;
+    updates.endRentTime = finalEnd;
+    updates.durationHours = durationHours;
+    updates.totalPrice = totalPrice;
+    updates.pricePerHour = effectivePricePerHour;
+  }
+
+  // No-op
+  if (Object.keys(updates).length === 0) {
+    return res.status(200).json({ success: true, message: "Nothing to update", data: existing });
+  }
+
+  updates.updatedAt = new Date();
+
+  const updated = await Booking.findByIdAndUpdate(existing._id, updates, { new: true, runValidators: true });
+  return res.status(200).json({ success: true, message: "Booking updated", data: updated });
+});
+
+export const deleteBooking = asyncHandler(async (req, res, next) => {
+  const bookingId = req.params.bookingId || req.params.id;
+  
+  if (!bookingId) {
+    return res.status(400).json({ success: false, message: "Booking ID is required in params" });
+  }
+
+  // Find the booking
+  const existing = await Booking.findById(bookingId);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: "Booking not found" });
+  }
+
+  // Authorization: allow owner or admin
+  const isOwner = String(existing.userId) === String(req.user?._id);
+  const isAdmin = req.user?.role === "admin";
+    
+  // Debug information
+  console.log("Debug Info:", {
+    currentUserId: req.user?._id,
+    bookingUserId: existing.userId,
+    currentUserRole: req.user?.role,
+    isOwner,
+    isAdmin
+  });
+  
+  if (!isOwner && !isAdmin) {
+    return res.status(403).json({ 
+      success: false, 
+      message: "Access denied: You don't have permission to delete this booking.",
+      debug: {
+        currentUserId: req.user?._id,
+        bookingUserId: existing.userId,
+        currentUserRole: req.user?.role
+      }
+    });
+  }
+
+  // Check if booking can be deleted (e.g., not in the past, not already cancelled)
+  const now = new Date();
+  const bookingDate = new Date(existing.dateOfRent);
+  
+  // Optional: Prevent deletion of past bookings (uncomment if needed)
+  // if (bookingDate < now) {
+  //   return res.status(400).json({ 
+  //     success: false, 
+  //     message: "Cannot delete past bookings" 
+  //   });
+  // }
+
+  // Optional: Check if booking is already cancelled
+  if (existing.status === "cancelled") {
+    return res.status(400).json({ 
+      success: false, 
+      message: "Booking is already cancelled" 
+    });
+  }
+
+  // Calculate points to deduct (same as points earned when booking was created)
+  const pointsToDeduct = calculatePoints(existing.durationHours);
+  
+  // Deduct points from user account
+  await User.findByIdAndUpdate(
+    existing.userId,
+    { $inc: { points: -pointsToDeduct } }, // Deduct points (negative increment)
+    { new: true }
+  );
+
+  // Send deletion notification email
+  await sendEmail(
+    existing.renterEmail,
+    "🗑️ Your Booking Has Been Deleted",
+    `
+      <h2>Hello ${existing.renterName} 👋</h2>
+      <p>Your booking has been deleted.</p>
+      <p><b>Date of Rent:</b> ${existing.dateOfRent.toDateString()}</p>
+      <p><b>From:</b> ${existing.startRentTime}</p>
+      <p><b>To:</b> ${existing.endRentTime}</p>
+      <p><b>Phone:</b> ${existing.renterPhone}</p>
+      <p><b>Comments:</b> ${existing.anyComment || "None"}</p>
+       <p><b>Points Deducted:</b> ${pointsToDeduct} ⭐</p>
+      <hr/>
+      <p>If you have any questions, please contact us.</p>
+    `
+  );
+
+  // Soft delete: Update status to cancelled instead of deleting
+  const updated = await Booking.findByIdAndUpdate(
+    bookingId,
+    { status: "cancelled", updatedAt: new Date() },
+    { new: true, runValidators: true }
+  );
+
+  return res.status(200).json({ 
+    success: true, 
+    message: "Booking deleted successfully",
+    deletedBooking: {
+      id: existing._id,
+      renterName: existing.renterName,
+      dateOfRent: existing.dateOfRent,
+      startRentTime: existing.startRentTime,
+      endRentTime: existing.endRentTime,
+      pointsDeducted: pointsToDeduct
+    }
+  });
+});
+
+// Admin: Get all bookings with optional filters and pagination
+export const getAllBookings = asyncHandler(async (req, res) => {
+  const {
+    page = 1,
+    limit = 20,
+    status,
+    date,
+    renterPhone,
+    renterName,
+    sort = '-createdAt'
+  } = req.query || {};
+
+  const numericPage = Math.max(1, parseInt(page));//Ensure page is at least 1
+  const numericLimit = Math.min(100, Math.max(1, parseInt(limit))); //Ensure limit is at least 1 and at most 100
+  const skip = (numericPage - 1) * numericLimit;
+
+  const filter = {};
+  if (status) filter.status = status;
+  if (renterPhone) filter.renterPhone = new RegExp(renterPhone, 'i');// يعمل بحث بـ Regex (يعني مش لازم يكتب الرقم أو الاسم كامل).
+  if (renterName) filter.renterName = new RegExp(renterName, 'i'); 
+
+  if (date) {
+    // expecting YYYY-MM-DD
+    const [y,m,d] = String(date).split('-').map(Number);
+    const start = new Date(y, m-1, d, 0,0,0,0);//start of the day
+    const end = new Date(y, m-1, d, 23,59,59,999);//end of the day
+    filter.dateOfRent = { $gte: start, $lte: end };//filter by date of rent
+  }
+//items: bookings that match the filter
+//total: total number of bookings that match the filter
+const [items, total] = await Promise.all([//to run queries in parallel (faster/it means running two or more tasks at the same time,).
+
+  //with promise.all we can run multiple queries(find ,sort , skip , limit , countDocuments) at the same time and wait for all of them to complete.
+    Booking.find(filter).sort(sort).skip(skip).limit(numericLimit)
+    .lean(),//(plain JavaScript object ده بيخلي الكود أسرع 🏎️ وأخف على السيرفر، خصوصًا لو بتتعامل مع آلاف الحجوزات.
+     
+
+    // countDocuments is used to count the number of documents that match the filter.
+    Booking.countDocuments(filter)
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    pagination: {
+      page: numericPage,
+      limit: numericLimit,
+      total,
+      pages: Math.ceil(total / numericLimit)
+    },
+    data: items
+  });
+});
+
+// Admin-only: cancel a booking (soft-cancel by setting status = "cancelled")
+export const adminCancelBooking = asyncHandler(async (req, res) => {
+  const { bookingId } = req.params;
+  if (!bookingId) {
+    return res.status(400).json({ success: false, message: "Booking ID is required in params" });
+  }
+
+  const existing = await Booking.findById(bookingId);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: "Booking not found" });
+  }
+
+  if (existing.status === "cancelled") {
+    return res.status(200).json({ success: true, message: "Booking already cancelled", data: existing });
+  }
+ //deduct points from current rent 
+  const pointsToDeduct = calculatePoints(existing.durationHours);
+
+  await User.findByIdAndUpdate(
+    existing.userId,
+    { $inc: { points: -pointsToDeduct } },
+    { new: true }
+  );
+
+  const updated = await Booking.findByIdAndUpdate(
+    bookingId,
+    { status: "cancelled", updatedAt: new Date() },
+    { new: true }
+  );
+
+  await sendEmail(
+    existing.renterEmail,
+    "❌ Your Booking Has Been Cancelled",
+    `
+      <h2>Hello ${existing.renterName} 👋</h2>
+      <p>Your booking has been cancelled by the administrator.</p>
+      <p><b>Date of Rent:</b> ${new Date(existing.dateOfRent).toDateString()}</p>
+      <p><b>From:</b> ${existing.startRentTime}</p>
+      <p><b>To:</b> ${existing.endRentTime}</p>
+      <p><b>Points Deducted: -</b> ${pointsToDeduct} ⭐</p>
+    `
+  );
+
+  return res.status(200).json({ success: true, message: "Booking cancelled", data: updated });
+});
+
+// Admin-only: change booking status (pending | confirmed | cancelled)
+export const adminChangeStatus = asyncHandler(async (req, res) => {
+   const { bookingId } = req.params;
+  const { status } = req.body || {};
+
+  if (!bookingId) {
+    return res.status(400).json({ success: false, message: "Booking ID is required in params" });
+  }
+  if (!status) {
+    return res.status(400).json({ success: false, message: "Status is required in body" });
+  }
+
+  const existing = await Booking.findById(bookingId);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: "Booking not found" });
+  }
+
+  let pointsDeducted = 0;
+  // If moving to cancelled from a non-cancelled state, deduct points once
+  if (status === "cancelled" && existing.status !== "cancelled") {
+    pointsDeducted = calculatePoints(existing.durationHours);
+    await User.findByIdAndUpdate(
+      existing.userId,
+      { $inc: { points: -pointsDeducted } },
+      { new: true }
+    );
+  }
+
+  const updated = await Booking.findByIdAndUpdate(
+    bookingId,
+    { status, updatedAt: new Date() },
+    { new: true, runValidators: true }
+  );
+
+  return res.status(200).json({ success: true, message: "Status updated", data: updated, pointsDeducted });
+});
+
