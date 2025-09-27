@@ -2,8 +2,7 @@
 import authRouter from './Modules/auth/auth.router.js'
  import bookingRouter from './Modules/booking/booking.router.js'
  import postRouter from './Modules/Posts/Posts.router.js'
-// import categoryRouter from './Modules/category/category.router.js'
-const initApp = (app,express,next) => {
+ const initApp = (app,express,next) => {
 
   connectDB();
 
@@ -16,10 +15,14 @@ const initApp = (app,express,next) => {
 
 
 
-  // catch all routes
-// app.all("*", (req, res) => {
-//   res.status(404).json({ message: "Page not found" });
-// });
+  // catch all routes - handle invalid routes
+  app.use((req, res) => {
+    res.status(404).json({ 
+      message: "Route not found",
+      error: `Cannot ${req.method} ${req.originalUrl}`,
+
+    });
+  });
 
   // global error handlers
   // Express will automatically pass errors to this middleware when next(error) is called anywhere.
@@ -35,6 +38,7 @@ return res.status(err.statusCode || 500).json({ message: "Something went wrong."
 // stack The file and line number where the error was thrown.
   
 });
+ 
 }
 export default initApp
  

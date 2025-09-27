@@ -21,3 +21,13 @@ FRONTEND_URL=http://localhost:3000
 # Bearer Token Key
 BEARER_KEY=Bearer
 
+# Cloudinary (REQUIRED for image uploads)
+# Choose either the UPPERCASE or lowercase names; both are supported.
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+# Alternatively:
+# cloudinary_name=your_cloud_name
+# cloudinary_api_key=your_api_key
+# cloudinary_api_Sercret=your_api_secret
+

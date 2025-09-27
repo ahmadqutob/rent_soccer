@@ -3,6 +3,7 @@ import Booking from "../../../../database/Models/booking.models.js";
 import User from "../../../../database/Models/user.model.js";
 import { sendEmail } from "../../../Services/SendEmail.services.js";
 import { sendWhatsApp } from "../../../Services/sendWhatsapp.services.js";
+import puppeteer from 'puppeteer';
 // change time 19:18 to number 19*60 + 18
 const toMinutes = (timeStr) => {
   const [h, m] = String(timeStr).split(":").map(Number);
@@ -572,4 +573,282 @@ export const adminChangeStatus = asyncHandler(async (req, res) => {
 
   return res.status(200).json({ success: true, message: "Status updated", data: updated, pointsDeducted });
 });
+
+// // Admin: Export all bookings to PDF
+// export const exportBookingsToPDF = asyncHandler(async (req, res) => {
+//   const {
+//     status,
+//     date,
+//     renterPhone,
+//     renterName,
+//     sort = '-createdAt'
+//   } = req.query || {};
+
+//   // Build filter object (same as getAllBookings)
+//   const filter = {};
+//   if (status) filter.status = status;
+//   if (renterPhone) filter.renterPhone = new RegExp(renterPhone, 'i');
+//   if (renterName) filter.renterName = new RegExp(renterName, 'i');
+
+//   if (date) {
+//     const [y, m, d] = String(date).split('-').map(Number);
+//     const start = new Date(y, m - 1, d, 0, 0, 0, 0);
+//     const end = new Date(y, m - 1, d, 23, 59, 59, 999);
+//     filter.dateOfRent = { $gte: start, $lte: end };
+//   }
+
+//   // Get all bookings (no pagination for PDF export)
+//   const bookings = await Booking.find(filter)
+//     .sort(sort)
+//     .populate('userId', 'userName email')
+//     .lean();
+
+//   if (bookings.length === 0) {
+//     return res.status(404).json({
+//       success: false,
+//       message: "No bookings found   "
+//     });
+//   }
+
+//   // Generate HTML content for PDF
+//   const htmlContent = generateBookingsHTML(bookings);
+
+//   // Launch puppeteer and generate PDF
+//   const browser = await puppeteer.launch({
+//     headless: true,
+//     args: ['--no-sandbox', '--disable-setuid-sandbox']
+//   });
+
+//   try {
+//     const page = await browser.newPage();
+//     await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+//     const pdfBuffer = await page.pdf({
+//       format: 'A4',
+//       printBackground: true,
+//       margin: {
+//         top: '20mm',
+//         right: '15mm',
+//         bottom: '20mm',
+//         left: '15mm'
+//       }
+//     });
+
+//     await browser.close();
+
+//     // Set response headers for PDF download
+//     res.setHeader('Content-Type', 'application/pdf');
+//     res.setHeader('Content-Disposition', `attachment; filename="bookings-report-${new Date().toISOString().split('T')[0]}.pdf"`);
+//     res.setHeader('Content-Length', pdfBuffer.length);
+
+//     return res.send(pdfBuffer);
+
+//   } catch (error) {
+//     await browser.close();
+//     throw error;
+//   }
+// });
+
+// // Helper function to generate HTML content for PDF
+// const generateBookingsHTML = (bookings) => {
+//   const currentDate = new Date().toLocaleDateString();
+//   const totalBookings = bookings.length;
+//   const totalRevenue = bookings.reduce((sum, booking) => sum + (booking.totalPrice || 0), 0);
+
+//   // Group bookings by status for summary
+//   const statusCounts = bookings.reduce((acc, booking) => {
+//     acc[booking.status] = (acc[booking.status] || 0) + 1;
+//     return acc;
+//   }, {});
+
+//   return `
+//     <!DOCTYPE html>
+//     <html>
+//     <head>
+//         <meta charset="UTF-8">
+//         <title>Bookings Report</title>
+//         <style>
+//             body {
+//                 font-family: Arial, sans-serif;
+//                 margin: 0;
+//                 padding: 20px;
+//                 color: #333;
+//             }
+//             .header {
+//                 text-align: center;
+//                 margin-bottom: 30px;
+//                 border-bottom: 2px solid #007bff;
+//                 padding-bottom: 20px;
+//             }
+//             .header h1 {
+//                 color: #007bff;
+//                 margin: 0;
+//                 font-size: 28px;
+//             }
+//             .header p {
+//                 margin: 5px 0;
+//                 color: #666;
+//             }
+//             .summary {
+//                 background-color: #f8f9fa;
+//                 padding: 20px;
+//                 border-radius: 8px;
+//                 margin-bottom: 30px;
+//             }
+//             .summary h2 {
+//                 color: #007bff;
+//                 margin-top: 0;
+//             }
+//             .summary-grid {
+//                 display: grid;
+//                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+//                 gap: 15px;
+//                 margin-top: 15px;
+//             }
+//             .summary-item {
+//                 background: white;
+//                 padding: 15px;
+//                 border-radius: 5px;
+//                 text-align: center;
+//                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+//             }
+//             .summary-item h3 {
+//                 margin: 0 0 5px 0;
+//                 color: #007bff;
+//                 font-size: 24px;
+//             }
+//             .summary-item p {
+//                 margin: 0;
+//                 color: #666;
+//                 font-size: 14px;
+//             }
+//             .bookings-table {
+//                 width: 100%;
+//                 border-collapse: collapse;
+//                 margin-top: 20px;
+//             }
+//             .bookings-table th,
+//             .bookings-table td {
+//                 border: 1px solid #ddd;
+//                 padding: 12px;
+//                 text-align: left;
+//                 font-size: 12px;
+//             }
+//             .bookings-table th {
+//                 background-color: #007bff;
+//                 color: white;
+//                 font-weight: bold;
+//             }
+//             .bookings-table tr:nth-child(even) {
+//                 background-color: #f9f9f9;
+//             }
+//             .status-badge {
+//                 padding: 4px 8px;
+//                 border-radius: 4px;
+//                 font-size: 11px;
+//                 font-weight: bold;
+//                 text-transform: uppercase;
+//             }
+//             .status-confirmed {
+//                 background-color: #d4edda;
+//                 color: #155724;
+//             }
+//             .status-pending {
+//                 background-color: #fff3cd;
+//                 color: #856404;
+//             }
+//             .status-cancelled {
+//                 background-color: #f8d7da;
+//                 color: #721c24;
+//             }
+//             .footer {
+//                 margin-top: 30px;
+//                 text-align: center;
+//                 color: #666;
+//                 font-size: 12px;
+//                 border-top: 1px solid #ddd;
+//                 padding-top: 20px;
+//             }
+//         </style>
+//     </head>
+//     <body>
+//         <div class="header">
+//             <h1>🏟️ Soccer Field Bookings Report</h1>
+//             <p>Generated on: ${currentDate}</p>
+//             <p>Total Bookings: ${totalBookings}</p>
+//         </div>
+
+//         <div class="summary">
+//             <h2>📊 Summary</h2>
+//             <div class="summary-grid">
+//                 <div class="summary-item">
+//                     <h3>${totalBookings}</h3>
+//                     <p>Total Bookings</p>
+//                 </div>
+//                 <div class="summary-item">
+//                     <h3>₪${totalRevenue.toFixed(2)}</h3>
+//                     <p>Total Revenue</p>
+//                 </div>
+//                 <div class="summary-item">
+//                     <h3>${statusCounts.confirmed || 0}</h3>
+//                     <p>Confirmed</p>
+//                 </div>
+//                 <div class="summary-item">
+//                     <h3>${statusCounts.pending || 0}</h3>
+//                     <p>Pending</p>
+//                 </div>
+//                 <div class="summary-item">
+//                     <h3>${statusCounts.cancelled || 0}</h3>
+//                     <p>Cancelled</p>
+//                 </div>
+//             </div>
+//         </div>
+
+//         <table class="bookings-table">
+//             <thead>
+//                 <tr>
+//                     <th>Booking ID</th>
+//                     <th>Renter Name</th>
+//                     <th>Phone</th>
+//                     <th>Email</th>
+//                     <th>Date</th>
+//                     <th>Start Time</th>
+//                     <th>End Time</th>
+//                     <th>Duration</th>
+//                     <th>Price/Hour</th>
+//                     <th>Total Price</th>
+//                     <th>Status</th>
+//                     <th>Comments</th>
+//                     <th>Created</th>
+//                 </tr>
+//             </thead>
+//             <tbody>
+//                 ${bookings.map(booking => `
+//                     <tr>
+//                         <td>${booking._id.toString().slice(-8)}</td>
+//                         <td>${booking.renterName}</td>
+//                         <td>${booking.renterPhone}</td>
+//                         <td>${booking.renterEmail || 'N/A'}</td>
+//                         <td>${new Date(booking.dateOfRent).toLocaleDateString()}</td>
+//                         <td>${booking.startRentTime}</td>
+//                         <td>${booking.endRentTime}</td>
+//                         <td>${booking.durationHours}h</td>
+//                         <td>₪${booking.pricePerHour}</td>
+//                         <td>₪${booking.totalPrice}</td>
+//                         <td><span class="status-badge status-${booking.status}">${booking.status}</span></td>
+//                         <td>${booking.anyComment || 'N/A'}</td>
+//                         <td>${new Date(booking.createdAt).toLocaleDateString()}</td>
+//                     </tr>
+//                 `).join('')}
+//             </tbody>
+//         </table>
+
+//         <div class="footer">
+//             <p>This report was generated automatically by the Soccer Field Booking System</p>
+//             <p>For any questions, please contact the system administrator</p>
+//         </div>
+//     </body>
+//     </html>
+//   `;
+// };
 

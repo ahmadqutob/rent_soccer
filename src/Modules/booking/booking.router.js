@@ -27,5 +27,8 @@ router.patch("/changeStatus/:bookingId", authorization(["admin"]), validation(va
 // Admin: list all bookings
 router.get("/all", authorization(["admin"]), validation(validationSchema.getAllBookings), bookingController.getAllBookings);
 
+// Admin: export all bookings to PDF
+// router.get("/export-pdf", authorization(["admin"]), bookingController.exportBookingsToPDF);
+
 
 export default router;
